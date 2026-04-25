@@ -1,0 +1,16 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.mgthompo1/anchorr-mcp",
+  "description": "Agent-native CRM. 25 tools across contacts, companies, deals, sequences, activities, and an enrichment waterfall (Apollo → Hunter → AI research) with shared cache and per-call audit. Same data, automations, and audit trail as the Anchorr web product. Issue scoped per-agent API keys at anchorr.app/settings.",
+  "repository": {
+    "url": "https://github.com/mgthompo1/anchorr-mcp",
+    "source": "github"
+  },
+  "version": "0.2.0",
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://anchorr-mcp.mgthompo.workers.dev/mcp"
+    }
+  ]
+}
