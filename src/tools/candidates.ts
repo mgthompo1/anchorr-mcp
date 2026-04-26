@@ -8,7 +8,7 @@ export async function listCandidates(
   let q = supabase
     .from('agent_candidates')
     .select(
-      'id, first_name, last_name, email, title, company_name, company_domain, location, industry, score, score_reasoning, score_breakdown, feedback_tags, preview_subject, preview_body, status, created_at'
+      'id, first_name, last_name, email, title, company_name, company_domain, location, industry, score, score_reasoning, score_breakdown, feedback_tags, verifications, preview_subject, preview_body, status, created_at'
     )
     .eq('org_id', orgId)
     .order('score', { ascending: false, nullsFirst: false })
