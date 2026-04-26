@@ -45,8 +45,15 @@ export const FEEDBACK_TAGS = [
   'score_too_high',
   'score_too_low',
   'bad_email_draft',
+  // Email body invented a vendor / stack / event the agent had no evidence
+  // for (e.g. "saw you're running Statuspage" when nothing in the prospect
+  // data confirms it). Distinct from bad_email_draft (style/tone). Highest-
+  // value tag for catching the model's fabrication failure mode.
+  'fabricated_signal',
   'good_fit',
   'bad_fit',
+  // Approve-side: this draft is the gold standard, replicate it.
+  'good_email_draft',
 ] as const
 export type FeedbackTag = (typeof FEEDBACK_TAGS)[number]
 
