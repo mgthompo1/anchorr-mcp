@@ -367,7 +367,7 @@ function createServer(env: McpEnv, apiKey: ApiKeyRecord | null): McpServer {
       target_industries: z.array(z.string()).optional(),
       target_company_sizes: z.array(z.string()).optional(),
       target_locations: z.array(z.string()).optional(),
-      daily_prospect_limit: z.number().int().min(1).max(50).optional(),
+      daily_prospect_limit: z.number().int().min(1).max(100).optional(),
       daily_email_limit: z.number().int().min(1).max(100).optional(),
       sequence_id: z.string().uuid().nullable().optional(),
       booking_link_id: z.string().uuid().nullable().optional(),
