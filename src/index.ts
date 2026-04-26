@@ -300,6 +300,7 @@ function createServer(env: McpEnv, apiKey: ApiKeyRecord | null): McpServer {
     async (args, { supabase, orgId }) =>
       listCandidates(supabase, orgId, {
         status: args.status === 'all' ? undefined : args.status,
+        allStatuses: args.status === 'all',
         limit: args.limit,
       })
   )

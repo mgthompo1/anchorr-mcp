@@ -3,20 +3,31 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 export async function listCandidates(
   supabase: SupabaseClient,
   orgId: string,
-  params: { status?: string; limit?: number }
+  params: { status?: string; limit?: number; allStatuses?: boolean }
 ) {
   let q = supabase
     .from('agent_candidates')
     .select(
-      'id, first_name, last_name, email, title, company_name, company_domain, location, industry, score, score_reasoning, preview_subject, preview_body, status, created_at'
+      'id, first_name, last_name, email, title, company_name, company_domain, location, industry, score, score_reasoning, score_breakdown, feedback_tags, preview_subject, preview_body, status, created_at'
     )
     .eq('org_id', orgId)
     .order('score', { ascending: false, nullsFirst: false })
     .order('created_at', { ascending: false })
     .limit(Math.min(params.limit ?? 50, 200))
 
-  if (params.status) q = q.eq('status', params.status)
-  else q = q.eq('status', 'pending_review')
+  // Three states:
+  //   allStatuses=true → no status filter (caller asked for "all")
+  //   status set       → filter to that exact status
+  //   neither          → backward-compat default of pending_review
+  // Old code only had two states and silently filtered "all" → undefined →
+  // pending_review default, returning [] for callers asking for everything.
+  if (params.allStatuses) {
+    // no filter
+  } else if (params.status) {
+    q = q.eq('status', params.status)
+  } else {
+    q = q.eq('status', 'pending_review')
+  }
 
   const { data, error } = await q
   if (error) throw new Error(error.message)
