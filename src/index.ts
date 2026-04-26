@@ -8,6 +8,7 @@ import {
   listSequences,
   getSequence,
   updateSequence,
+  deleteSequence,
 } from './tools/sequences.js'
 import {
   listContacts,
@@ -16,8 +17,8 @@ import {
   bulkCreateContacts,
   enrollContactInSequence,
 } from './tools/contacts.js'
-import { listCandidates, updateCandidateStatus } from './tools/candidates.js'
-import { getAgentConfig, updateAgentConfig, getAgentOverview } from './tools/agent.js'
+import { listCandidates, updateCandidateStatus, FEEDBACK_TAGS } from './tools/candidates.js'
+import { getAgentConfig, updateAgentConfig, getAgentOverview, runAgentHunt } from './tools/agent.js'
 import {
   listDeals,
   getDeal,
@@ -48,7 +49,14 @@ import { enrichContact, enrichCompany, bulkEnrichContacts } from './tools/enrich
 import { orgOverview, dealBrief, contactBrief, companyBrief } from './resources.js'
 import { handleOAuth } from './oauth.js'
 
-type McpEnv = Env & { ENVIRONMENT?: string; ANTHROPIC_API_KEY?: string }
+type McpEnv = Env & {
+  ENVIRONMENT?: string
+  ANTHROPIC_API_KEY?: string
+  // Required by run_agent_hunt — points at the Anchorr Next.js app and
+  // the cron secret used to authorize server-to-server hunt triggers.
+  APP_URL?: string
+  CRON_SECRET?: string
+}
 
 const CORS_HEADERS: Record<string, string> = {
   'Access-Control-Allow-Origin': '*',
@@ -198,6 +206,14 @@ function createServer(env: McpEnv, apiKey: ApiKeyRecord | null): McpServer {
     async (args, { supabase, orgId }) => updateSequence(supabase, orgId, args)
   )
 
+  tool(
+    'delete_sequence',
+    'Permanently delete a sequence and all its steps. Refuses if the sequence has active enrollments — pause it and unenroll first if you really want it gone. Cascade removes sequence_steps and sequence_enrollments.',
+    'sequences:write',
+    { id: z.string().uuid() },
+    async ({ id }, { supabase, orgId }) => deleteSequence(supabase, orgId, id)
+  )
+
   // ── Contacts ───────────────────────────────────────────────────────────
   tool(
     'list_contacts',
@@ -290,9 +306,15 @@ function createServer(env: McpEnv, apiKey: ApiKeyRecord | null): McpServer {
 
   tool(
     'reject_agent_candidate',
-    'Reject a pending candidate.',
+    `Reject a pending candidate. Pass feedback_tags from the canonical vocabulary so the daily distill cron can turn the rejection into rubric corrections — without tags the rejection is silent for learning. Allowed tags: ${FEEDBACK_TAGS.join(', ')}. Use as many as apply (e.g. ["wrong_industry","score_too_high"]).`,
     'agent:write',
-    { candidate_id: z.string().uuid() },
+    {
+      candidate_id: z.string().uuid(),
+      feedback_tags: z.array(z.enum(FEEDBACK_TAGS)).optional()
+        .describe('Structured corrections fed into the next learning distillation.'),
+      reason: z.string().max(500).optional()
+        .describe('Optional free-text note (kept on agent_candidates.notes).'),
+    },
     async (args, { supabase, orgId }) =>
       updateCandidateStatus(supabase, orgId, { ...args, action: 'reject' })
   )
@@ -339,6 +361,21 @@ function createServer(env: McpEnv, apiKey: ApiKeyRecord | null): McpServer {
     'agent:read',
     {},
     async (_args, { supabase, orgId }) => getAgentOverview(supabase, orgId)
+  )
+
+  tool(
+    'run_agent_hunt',
+    'Trigger an immediate hunt run for the org (Apollo search → score → enroll/queue). Returns the same shape as the daily cron: { candidates_added, candidates_scored, auto_enrolled, errors, skipped_reason? }. Subject to daily_prospect_limit — if prospects_today already hit the cap, returns skipped_reason: "daily cap reached".',
+    'agent:write',
+    {},
+    async (_args, { orgId }) => {
+      if (!env.APP_URL || !env.CRON_SECRET) {
+        throw new Error(
+          'run_agent_hunt is unavailable — the MCP server is missing APP_URL and/or CRON_SECRET. Set them with `wrangler secret put APP_URL` and `wrangler secret put CRON_SECRET`.'
+        )
+      }
+      return runAgentHunt(env.APP_URL, env.CRON_SECRET, orgId)
+    }
   )
 
   // ── Companies ──────────────────────────────────────────────────────────

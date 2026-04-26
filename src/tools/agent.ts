@@ -94,3 +94,38 @@ export async function getAgentOverview(supabase: SupabaseClient, orgId: string) 
     replies_today: repliesRes.count ?? 0,
   }
 }
+
+// Triggers a real hunt run. Delegates to the Next.js cron endpoint rather
+// than reimplementing scoring/drafting/enrollment in the Worker — keeps the
+// hunt logic in one place and avoids duplicating the Anthropic + enrichment
+// stack inside the MCP runtime.
+export async function runAgentHunt(
+  appUrl: string,
+  cronSecret: string,
+  orgId: string
+) {
+  const url = appUrl.replace(/\/$/, '') + '/api/cron/agent-hunt'
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-cron-secret': cronSecret,
+    },
+    body: JSON.stringify({ org_id: orgId }),
+  })
+  const text = await res.text()
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(text)
+  } catch {
+    throw new Error(`Hunt endpoint returned non-JSON (${res.status}): ${text.slice(0, 200)}`)
+  }
+  if (!res.ok) {
+    const err = (parsed as { error?: string } | null)?.error ?? `HTTP ${res.status}`
+    throw new Error(`Hunt failed: ${err}`)
+  }
+  // The cron endpoint returns { runs: [...] } — pull the org's row out for clarity.
+  const runs = (parsed as { runs?: Array<Record<string, unknown>> } | null)?.runs ?? []
+  const mine = runs.find((r) => (r as { org_id?: string }).org_id === orgId) ?? runs[0] ?? null
+  return mine ?? { org_id: orgId, candidates_added: 0, candidates_scored: 0, auto_enrolled: 0 }
+}

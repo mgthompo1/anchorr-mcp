@@ -127,6 +127,40 @@ export async function updateSequence(
   }
 }
 
+export async function deleteSequence(
+  supabase: SupabaseClient,
+  orgId: string,
+  sequenceId: string
+) {
+  // Verify it exists and belongs to this org before delete.
+  const { data: existing, error: findErr } = await supabase
+    .from('sequences')
+    .select('id, name, enrolled_count')
+    .eq('id', sequenceId)
+    .eq('org_id', orgId)
+    .maybeSingle()
+  if (findErr || !existing) throw new Error('Sequence not found')
+
+  // Refuse to silently nuke a sequence with active enrollments — caller can
+  // pause the sequence and unenroll explicitly if they really want this gone.
+  if ((existing.enrolled_count ?? 0) > 0) {
+    throw new Error(
+      `Sequence "${existing.name}" has ${existing.enrolled_count} active enrollments. Pause it and unenroll first, or delete those enrollments before deleting the sequence.`
+    )
+  }
+
+  // Cascade: sequence_steps and sequence_enrollments have ON DELETE CASCADE
+  // on sequence_id (verified in migrations). Single delete handles cleanup.
+  const { error: delErr } = await supabase
+    .from('sequences')
+    .delete()
+    .eq('id', sequenceId)
+    .eq('org_id', orgId)
+  if (delErr) throw new Error(`Failed to delete sequence: ${delErr.message}`)
+
+  return { id: sequenceId, name: existing.name, deleted: true }
+}
+
 export async function getSequence(
   supabase: SupabaseClient,
   orgId: string,

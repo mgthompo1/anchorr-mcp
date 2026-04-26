@@ -9,3 +9,6 @@ ENVIRONMENT = "production"
 # Secrets (set via `wrangler secret put`):
 # SUPABASE_URL
 # SUPABASE_SERVICE_KEY
+# ANTHROPIC_API_KEY  — used by enrichment AI fallback
+# APP_URL            — https://anchorr.app, used by run_agent_hunt
+# CRON_SECRET        — same value as the Next.js app's CRON_SECRET, used by run_agent_hunt
