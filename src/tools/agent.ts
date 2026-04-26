@@ -129,3 +129,49 @@ export async function runAgentHunt(
   const mine = runs.find((r) => (r as { org_id?: string }).org_id === orgId) ?? runs[0] ?? null
   return mine ?? { org_id: orgId, candidates_added: 0, candidates_scored: 0, auto_enrolled: 0 }
 }
+
+// Approve a pending candidate. Calls the Next.js PATCH endpoint with the
+// cron secret so the full approve flow runs (status update → contact
+// create → sequence enrollment → enrichment), instead of reimplementing
+// any of that in the Worker.
+export async function approveAgentCandidate(
+  appUrl: string,
+  cronSecret: string,
+  orgId: string,
+  candidateId: string,
+  feedbackTags: string[],
+  reason: string | undefined
+) {
+  const url = appUrl.replace(/\/$/, '') + '/api/agent/candidates'
+  const res = await fetch(url, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-cron-secret': cronSecret,
+    },
+    body: JSON.stringify({
+      org_id: orgId,
+      id: candidateId,
+      action: 'approve',
+      feedback_tags: feedbackTags,
+      reason: reason ?? '',
+    }),
+  })
+  const text = await res.text()
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(text)
+  } catch {
+    throw new Error(`Approve endpoint returned non-JSON (${res.status}): ${text.slice(0, 200)}`)
+  }
+  if (!res.ok) {
+    const err = (parsed as { error?: string } | null)?.error ?? `HTTP ${res.status}`
+    throw new Error(`Approve failed: ${err}`)
+  }
+  return {
+    candidate_id: candidateId,
+    status: 'approved',
+    enrolled: !!(parsed as { enrolled?: boolean } | null)?.enrolled,
+    feedback_tags: feedbackTags,
+  }
+}

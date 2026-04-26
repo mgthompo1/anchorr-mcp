@@ -18,7 +18,7 @@ import {
   enrollContactInSequence,
 } from './tools/contacts.js'
 import { listCandidates, updateCandidateStatus, FEEDBACK_TAGS } from './tools/candidates.js'
-import { getAgentConfig, updateAgentConfig, getAgentOverview, runAgentHunt } from './tools/agent.js'
+import { getAgentConfig, updateAgentConfig, getAgentOverview, runAgentHunt, approveAgentCandidate } from './tools/agent.js'
 import {
   listDeals,
   getDeal,
@@ -318,6 +318,34 @@ function createServer(env: McpEnv, apiKey: ApiKeyRecord | null): McpServer {
     },
     async (args, { supabase, orgId }) =>
       updateCandidateStatus(supabase, orgId, { ...args, action: 'reject' })
+  )
+
+  tool(
+    'approve_agent_candidate',
+    `Approve a pending candidate. Triggers the full enrollment flow: status → approved, contact created (with company), enrichment waterfall, sequence enrollment. Pass feedback_tags (especially good_email_draft) so the distill cron learns which drafts work. Allowed tags: ${FEEDBACK_TAGS.join(', ')}. Returns { enrolled: true } on success — fails if no sequence is configured in agent_config.`,
+    'agent:write',
+    {
+      candidate_id: z.string().uuid(),
+      feedback_tags: z.array(z.enum(FEEDBACK_TAGS)).optional()
+        .describe('Structured signal for the distillation cron — use good_email_draft when the agent nailed it.'),
+      reason: z.string().max(500).optional()
+        .describe('Optional free-text note (kept on agent_candidates.notes).'),
+    },
+    async (args, { orgId }) => {
+      if (!env.APP_URL || !env.CRON_SECRET) {
+        throw new Error(
+          'approve_agent_candidate is unavailable — the MCP server is missing APP_URL and/or CRON_SECRET. Set them with `wrangler secret put APP_URL` and `wrangler secret put CRON_SECRET`.'
+        )
+      }
+      return approveAgentCandidate(
+        env.APP_URL,
+        env.CRON_SECRET,
+        orgId,
+        args.candidate_id,
+        args.feedback_tags ?? [],
+        args.reason
+      )
+    }
   )
 
   // ── Agent config + overview ────────────────────────────────────────────
