@@ -165,7 +165,7 @@ function createServer(env: McpEnv, apiKey: ApiKeyRecord | null): McpServer {
 
   tool(
     'create_sequence',
-    'Create a sequence with steps. Each step is email | task | wait. wait_days means "wait this many days before running this step".',
+    'Create a sequence with steps. Each step is email | task | wait. wait_days means "wait this many days before running this step". Sequence is created_by the user who issued the API key — the executor uses that user\'s connected mailbox (Gmail/Outlook) for sends, falling back to Resend if they have nothing connected.',
     'sequences:write',
     {
       name: z.string().min(1),
@@ -182,7 +182,8 @@ function createServer(env: McpEnv, apiKey: ApiKeyRecord | null): McpServer {
         )
         .min(1),
     },
-    async (args, { supabase, orgId }) => createSequence(supabase, orgId, args)
+    async (args, { supabase, orgId, key }) =>
+      createSequence(supabase, orgId, { ...args, created_by: key.created_by ?? undefined })
   )
 
   tool(

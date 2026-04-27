@@ -5,6 +5,11 @@ export interface ApiKeyRecord {
   org_id: string
   name: string
   scopes: string[]
+  // The user who issued this key. Surfaced so write tools that have a
+  // created_by / owner column (e.g. sequences) can credit the right
+  // person — without it, sequences end up created_by NULL and the
+  // executor can't resolve a sender mailbox, falling back to Resend.
+  created_by: string | null
 }
 
 export class AuthError extends Error {
@@ -40,7 +45,7 @@ export async function authenticateRequest(
   const hash = await sha256(raw)
   const { data, error } = await supabase
     .from('api_keys')
-    .select('id, org_id, name, scopes')
+    .select('id, org_id, name, scopes, created_by')
     .eq('key_hash', hash)
     .maybeSingle()
 
@@ -58,6 +63,7 @@ export async function authenticateRequest(
     org_id: data.org_id as string,
     name: data.name as string,
     scopes: (data.scopes as string[] | null) ?? [],
+    created_by: (data.created_by as string | null) ?? null,
   }
 }
 
