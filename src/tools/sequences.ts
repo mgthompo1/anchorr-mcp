@@ -215,6 +215,47 @@ export async function unenrollContact(
   }
 }
 
+// Fast-forward an enrollment to fire its next step on the next cron tick
+// instead of waiting for next_action_at. Useful when an operator just
+// approved a candidate and wants the first email to go now (rather than
+// waiting on the configured wait_days). Returns updated next_action_at;
+// the actual send happens within ~10 min when the sequence executor cron
+// next ticks.
+export async function fireEnrollmentNow(
+  supabase: SupabaseClient,
+  orgId: string,
+  enrollmentId: string
+) {
+  const { data: existing, error: findErr } = await supabase
+    .from('sequence_enrollments')
+    .select('id, status, next_action_at, sequence_id, contact_id')
+    .eq('id', enrollmentId)
+    .eq('org_id', orgId)
+    .maybeSingle()
+  if (findErr || !existing) throw new Error('Enrollment not found in this org')
+  if (existing.status !== 'active') {
+    throw new Error(
+      `Cannot fast-forward: enrollment is ${existing.status}, not active. Use unenroll_contact to terminate, or check why it isn't active.`
+    )
+  }
+
+  const now = new Date().toISOString()
+  const { error: updErr } = await supabase
+    .from('sequence_enrollments')
+    .update({ next_action_at: now })
+    .eq('id', enrollmentId)
+    .eq('org_id', orgId)
+  if (updErr) throw new Error(`Failed to fast-forward: ${updErr.message}`)
+
+  return {
+    enrollment_id: enrollmentId,
+    sequence_id: existing.sequence_id,
+    contact_id: existing.contact_id,
+    next_action_at: now,
+    note: 'Enrollment will fire on the next sequence-executor tick (within ~10 min). For instant arbitrary sends use send_email instead.',
+  }
+}
+
 export async function deleteSequence(
   supabase: SupabaseClient,
   orgId: string,

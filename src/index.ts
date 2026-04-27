@@ -10,6 +10,7 @@ import {
   updateSequence,
   deleteSequence,
   unenrollContact,
+  fireEnrollmentNow,
 } from './tools/sequences.js'
 import {
   listContacts,
@@ -19,7 +20,7 @@ import {
   enrollContactInSequence,
 } from './tools/contacts.js'
 import { listCandidates, updateCandidateStatus, FEEDBACK_TAGS } from './tools/candidates.js'
-import { getAgentConfig, updateAgentConfig, getAgentOverview, runAgentHunt, approveAgentCandidate } from './tools/agent.js'
+import { getAgentConfig, updateAgentConfig, getAgentOverview, runAgentHunt, approveAgentCandidate, sendAdHocEmail } from './tools/agent.js'
 import {
   listDeals,
   getDeal,
@@ -213,6 +214,37 @@ function createServer(env: McpEnv, apiKey: ApiKeyRecord | null): McpServer {
     'sequences:write',
     { id: z.string().uuid() },
     async ({ id }, { supabase, orgId }) => deleteSequence(supabase, orgId, id)
+  )
+
+  tool(
+    'fire_enrollment_now',
+    'Fast-forward an active enrollment so its next step fires on the next sequence-executor tick (within ~10 min) instead of waiting for the configured wait_days. Use after approving a candidate to push the first email out without waiting on cadence. For a true ad-hoc one-off send (no enrollment, no cadence), use send_email instead.',
+    'sequences:write',
+    { enrollment_id: z.string().uuid() },
+    async ({ enrollment_id }, { supabase, orgId }) => fireEnrollmentNow(supabase, orgId, enrollment_id)
+  )
+
+  tool(
+    'send_email',
+    'Send a single ad-hoc email outside any sequence — for test sends, manual nudges, replies. Routes through the same multi-provider stack the sequence runner uses (Gmail/Outlook OAuth or Resend fallback) and gets logged to synced_emails for the contact timeline. Optional contact_id ties the send to a contact in their timeline; optional user_id picks which org member\'s mailbox sends from (defaults to Resend fallback if omitted). Use fire_enrollment_now if the goal is to push out the next sequence step rather than send something arbitrary.',
+    'sequences:write',
+    {
+      to: z.string().email().describe('Recipient email address.'),
+      subject: z.string().min(1).max(200).describe('Email subject line.'),
+      body: z.string().min(1).describe('HTML body. Plain text is fine — will not be auto-formatted.'),
+      contact_id: z.string().uuid().optional()
+        .describe('If the recipient is a known contact, pass their id so the send appears on their timeline.'),
+      user_id: z.string().uuid().optional()
+        .describe('Org member to send from (uses their Gmail/Outlook OAuth). Omit to use the Resend fallback (noreply@anchorr.app).'),
+    },
+    async (args, { orgId }) => {
+      if (!env.APP_URL || !env.CRON_SECRET) {
+        throw new Error(
+          'send_email is unavailable — the MCP server is missing APP_URL and/or CRON_SECRET. Set them with `wrangler secret put APP_URL` and `wrangler secret put CRON_SECRET`.'
+        )
+      }
+      return sendAdHocEmail(env.APP_URL, env.CRON_SECRET, orgId, args)
+    }
   )
 
   tool(

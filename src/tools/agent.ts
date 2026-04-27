@@ -130,6 +130,42 @@ export async function runAgentHunt(
   return mine ?? { org_id: orgId, candidates_added: 0, candidates_scored: 0, auto_enrolled: 0 }
 }
 
+// Send a single ad-hoc email outside any sequence. Calls the Next.js
+// /api/agent/send-email endpoint so we reuse the multi-provider stack
+// (Gmail/Outlook OAuth or Resend fallback) and the synced_emails audit
+// log — no need to duplicate sending in the Worker.
+export async function sendAdHocEmail(
+  appUrl: string,
+  cronSecret: string,
+  orgId: string,
+  args: {
+    to: string
+    subject: string
+    body: string
+    contact_id?: string
+    user_id?: string
+  }
+) {
+  const url = appUrl.replace(/\/$/, '') + '/api/agent/send-email'
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-cron-secret': cronSecret },
+    body: JSON.stringify({ org_id: orgId, ...args }),
+  })
+  const text = await res.text()
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(text)
+  } catch {
+    throw new Error(`Send endpoint returned non-JSON (${res.status}): ${text.slice(0, 200)}`)
+  }
+  if (!res.ok) {
+    const err = (parsed as { error?: string } | null)?.error ?? `HTTP ${res.status}`
+    throw new Error(`Send failed: ${err}`)
+  }
+  return parsed
+}
+
 // Approve a pending candidate. Calls the Next.js PATCH endpoint with the
 // cron secret so the full approve flow runs (status update → contact
 // create → sequence enrollment → enrichment), instead of reimplementing
