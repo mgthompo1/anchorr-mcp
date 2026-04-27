@@ -9,6 +9,7 @@ import {
   getSequence,
   updateSequence,
   deleteSequence,
+  unenrollContact,
 } from './tools/sequences.js'
 import {
   listContacts,
@@ -212,6 +213,23 @@ function createServer(env: McpEnv, apiKey: ApiKeyRecord | null): McpServer {
     'sequences:write',
     { id: z.string().uuid() },
     async ({ id }, { supabase, orgId }) => deleteSequence(supabase, orgId, id)
+  )
+
+  tool(
+    'unenroll_contact',
+    'Stop a single contact\'s active enrollment in a sequence WITHOUT pausing the sequence for everyone else. Use when a test enrollment slipped through, a deal closed mid-cadence, or an unsubscribe needs to take effect immediately. Sets the enrollment to status=completed (terminal) and clears next_action_at so the next cron tick can\'t fire a stale step. Provide enrollment_id directly OR sequence_id + (contact_id or contact_email).',
+    'sequences:write',
+    {
+      enrollment_id: z.string().uuid().optional()
+        .describe('Direct enrollment id — preferred, unambiguous.'),
+      sequence_id: z.string().uuid().optional()
+        .describe('Sequence id — required if enrollment_id is not provided.'),
+      contact_id: z.string().uuid().optional()
+        .describe('Contact id — required with sequence_id when enrollment_id is not provided (use this OR contact_email).'),
+      contact_email: z.string().email().optional()
+        .describe('Contact email — alternative to contact_id when paired with sequence_id.'),
+    },
+    async (args, { supabase, orgId }) => unenrollContact(supabase, orgId, args)
   )
 
   // ── Contacts ───────────────────────────────────────────────────────────

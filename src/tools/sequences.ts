@@ -127,6 +127,94 @@ export async function updateSequence(
   }
 }
 
+// Stop a contact's active sequence enrollment without affecting other
+// enrollments in the same sequence. Use this when a test enrollment slipped
+// through, when a deal closed mid-cadence, or when an unsubscribe needs to
+// take effect immediately. Sets status='completed' (terminal — sequence
+// runner ignores it) and clears next_action_at so the next cron tick can't
+// fire a stale step. Keeps the row for audit; use delete only if you need
+// it gone from history.
+export async function unenrollContact(
+  supabase: SupabaseClient,
+  orgId: string,
+  params: {
+    sequence_id?: string
+    contact_id?: string
+    contact_email?: string
+    enrollment_id?: string
+  }
+) {
+  // Resolve to a single enrollment row. Three valid lookup shapes:
+  //   1. enrollment_id directly (preferred — unambiguous)
+  //   2. sequence_id + contact_id
+  //   3. sequence_id + contact_email (resolves contact first)
+  let enrollmentId: string | null = params.enrollment_id ?? null
+
+  if (!enrollmentId) {
+    if (!params.sequence_id) {
+      throw new Error('Provide enrollment_id, OR sequence_id + contact_id, OR sequence_id + contact_email')
+    }
+    let contactId = params.contact_id ?? null
+    if (!contactId && params.contact_email) {
+      const { data: c } = await supabase
+        .from('contacts')
+        .select('id')
+        .eq('org_id', orgId)
+        .eq('email', params.contact_email.toLowerCase().trim())
+        .maybeSingle()
+      if (!c) throw new Error(`No contact found with email ${params.contact_email} in this org`)
+      contactId = c.id as string
+    }
+    if (!contactId) throw new Error('Provide contact_id or contact_email when looking up by sequence_id')
+
+    const { data: enr } = await supabase
+      .from('sequence_enrollments')
+      .select('id, status')
+      .eq('org_id', orgId)
+      .eq('sequence_id', params.sequence_id)
+      .eq('contact_id', contactId)
+      .maybeSingle()
+    if (!enr) throw new Error('No enrollment found for this contact in this sequence')
+    enrollmentId = enr.id as string
+  }
+
+  // Verify the enrollment belongs to this org before mutating.
+  const { data: existing, error: findErr } = await supabase
+    .from('sequence_enrollments')
+    .select('id, status, sequence_id, contact_id')
+    .eq('id', enrollmentId)
+    .eq('org_id', orgId)
+    .maybeSingle()
+  if (findErr || !existing) throw new Error('Enrollment not found in this org')
+  if (existing.status === 'completed' || existing.status === 'replied' || existing.status === 'bounced') {
+    return {
+      enrollment_id: enrollmentId,
+      status: existing.status,
+      changed: false,
+      note: `Already in terminal state (${existing.status}); nothing to stop.`,
+    }
+  }
+
+  const { error: updErr } = await supabase
+    .from('sequence_enrollments')
+    .update({
+      status: 'completed',
+      completed_at: new Date().toISOString(),
+      next_action_at: null,
+    })
+    .eq('id', enrollmentId)
+    .eq('org_id', orgId)
+  if (updErr) throw new Error(`Failed to unenroll: ${updErr.message}`)
+
+  return {
+    enrollment_id: enrollmentId,
+    status: 'completed',
+    changed: true,
+    sequence_id: existing.sequence_id,
+    contact_id: existing.contact_id,
+  }
+}
+
 export async function deleteSequence(
   supabase: SupabaseClient,
   orgId: string,
